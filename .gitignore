@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Env & secrets (never commit)
+.env
+
+# Build artifacts
+build/
+*.zip
+/tmp/
+
+# OS
+.DS_Store
+
+# Internal drafts / promo / planning (kept locally + on S3, not in the repo)
+ARTICLE.md
+ARTICLE-devto.md
+BUILD_LOG.md
+DEMO_LINEUP.md
+YOUTUBE-METADATA.md

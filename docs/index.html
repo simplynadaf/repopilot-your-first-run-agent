@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RepoPilot: Your First-Run Agent</title>
+<meta name="description" content="Point RepoPilot at any public GitHub repo and get one friendly, accurate path from clone to a working first run." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0b0b10;
+    --bg-2: #121219;
+    --ink: #f4f3f7;
+    --muted: #9aa0b4;
+    --line: rgba(255,255,255,0.08);
+    --accent: #8b7cff;      /* single accent, < 80% sat */
+    --accent-2: #c7b6ff;
+    --ok: #4ade80;
+    --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100dvh;
+  }
+  /* film grain */
+  body::after {
+    content:''; position: fixed; inset: 0; z-index: 1000; pointer-events: none; opacity: .035;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  /* gradient orbs */
+  .orb { position: fixed; border-radius: 50%; filter: blur(90px); opacity: .5; z-index: 0; pointer-events: none; animation: float 12s var(--ease) infinite; }
+  .orb-1 { width: 480px; height: 480px; top: -12%; left: -6%; background: radial-gradient(circle, rgba(139,124,255,.6), transparent 70%); }
+  .orb-2 { width: 420px; height: 420px; bottom: -14%; right: -6%; background: radial-gradient(circle, rgba(90,120,220,.45), transparent 70%); animation-delay: -5s; }
+  @keyframes float { 0%,100%{ transform: translate(0,0) scale(1);} 33%{ transform: translate(30px,-24px) scale(1.05);} 66%{ transform: translate(-20px,16px) scale(.96);} }
+  @media (prefers-reduced-motion: reduce){ .orb{ animation: none; } html{ scroll-behavior:auto; } }
+
+  .wrap { position: relative; z-index: 1; max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+  /* nav */
+  nav { display: flex; align-items: center; justify-content: space-between; padding: 28px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: -.01em; }
+  .brand .mark { font-size: 22px; }
+  .nav-tag { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; }
+
+  /* hero */
+  header.hero { padding: 56px 0 40px; }
+  .eyebrow { font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: .22em; text-transform: uppercase; color: var(--accent-2); }
+  h1 { font-family: 'Instrument Serif', serif; font-weight: 400; font-size: clamp(2.6rem, 6vw, 4.6rem); line-height: 1.02; letter-spacing: -.01em; margin: 14px 0 10px; text-wrap: balance; }
+  h1 em { font-style: italic; color: var(--accent-2); }
+  .sub { color: var(--muted); font-size: clamp(1rem, 2.2vw, 1.2rem); max-width: 56ch; text-wrap: pretty; }
+
+  /* console card (nested double-bezel) */
+  .console-shell { margin-top: 40px; padding: 6px; border-radius: 24px; background: rgba(255,255,255,0.04); border: 1px solid var(--line); }
+  .console { border-radius: 18px; background: var(--bg-2); box-shadow: inset 0 1px 1px rgba(255,255,255,0.06); overflow: hidden; }
+  .console-bar { display: flex; align-items: center; gap: 8px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .dot.r{background:#ff5f57;} .dot.y{background:#febc2e;} .dot.g{background:#28c840;}
+  .console-title { margin-left: 10px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted); }
+  .mode-toggle { margin-left: auto; display: inline-flex; background: rgba(255,255,255,0.05); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+  .mode-btn { border: none; background: transparent; color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; padding: 5px 14px; border-radius: 999px; cursor: pointer; transition: all .25s var(--ease); }
+  .mode-btn.active { background: var(--accent); color: #0b0b10; }
+  .mode-btn:not(.active):hover { color: var(--ink); }
+  .mode-note { font-size: 12.5px; color: var(--muted); background: #0d0d14; border: 1px solid var(--line); border-radius: 10px; padding: 11px 14px; margin-bottom: 14px; }
+  .mode-note b { color: var(--accent-2); font-weight: 600; }
+  .mode-note.live b { color: #86efac; }
+  .mode-note a { color: var(--accent-2); }
+  .console-body { padding: 22px; }
+
+  .field { display: flex; gap: 10px; flex-wrap: wrap; }
+  .field input {
+    flex: 1; min-width: 240px; background: #0d0d14; border: 1px solid var(--line); color: var(--ink);
+    border-radius: 12px; padding: 15px 16px; font-family: 'JetBrains Mono', monospace; font-size: 14px; outline: none;
+    transition: border-color .3s var(--ease), box-shadow .3s var(--ease);
+  }
+  .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139,124,255,.18); }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px; border: none; cursor: pointer;
+    background: var(--ink); color: #0b0b10; font-weight: 700; font-size: 15px;
+    border-radius: 12px; padding: 15px 22px; transition: transform .25s var(--ease), opacity .25s var(--ease);
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:active { transform: scale(.98); }
+  .btn[disabled] { opacity: .55; cursor: wait; }
+  .btn .chip { width: 26px; height: 26px; border-radius: 50%; background: rgba(0,0,0,.12); display: grid; place-items: center; transition: transform .25s var(--ease); }
+  .btn:hover .chip { transform: translateX(3px); }
+
+  .examples { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .examples span { font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+  .examples button { background: transparent; border: 1px solid var(--line); color: var(--accent-2); border-radius: 999px; padding: 5px 12px; font-size: 12px; font-family: 'JetBrains Mono', monospace; cursor: pointer; transition: border-color .25s var(--ease); }
+  .examples button:hover { border-color: var(--accent); }
+
+  /* output */
+  .out { margin-top: 20px; display: none; }
+  .out.show { display: block; animation: rise .5s var(--ease) both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  .status { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 10px; }
+  .spinner { width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .answer { white-space: pre-wrap; font-family: 'JetBrains Mono', monospace; font-size: 13.5px; line-height: 1.7; color: var(--ink); background: #0d0d14; border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-top: 12px; }
+  /* trust & safety preflight panel */
+  .trust { margin-top: 14px; border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; background: #0d0d14; }
+  .trust .head { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: .95rem; }
+  .trust .grade { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 8px; }
+  .trust .grade.ok { color: #86efac; background: rgba(74,222,128,.1); border: 1px solid rgba(74,222,128,.25); }
+  .trust .grade.warn { color: #f3d08a; background: rgba(254,188,46,.08); border: 1px solid rgba(254,188,46,.28); }
+  .trust ul { margin: 10px 0 0; padding-left: 18px; }
+  .trust li { font-size: 13px; color: #e7e4f0; margin: 6px 0; }
+  .trust li.flag::marker { content: "⚠ "; }
+  .trust .clean { font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .trust .good { font-size: 12px; color: var(--muted); margin-top: 8px; font-family: 'JetBrains Mono', monospace; }
+
+  /* ===== RepoPilot Score card (the git inspector) ===== */
+  .scorecard { margin-top: 16px; border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(180deg, #0f0f17, #0b0b11); overflow: hidden; }
+  .sc-top { display: grid; grid-template-columns: 150px 1fr; gap: 22px; padding: 22px; align-items: center; }
+  @media (max-width: 620px){ .sc-top { grid-template-columns: 1fr; justify-items: center; text-align: center; } }
+  /* circular gauge */
+  .gauge { position: relative; width: 150px; height: 150px; }
+  .gauge svg { transform: rotate(-90deg); }
+  .gauge .track { fill: none; stroke: rgba(255,255,255,0.07); stroke-width: 12; }
+  .gauge .fill { fill: none; stroke-width: 12; stroke-linecap: round; transition: stroke-dashoffset 1.4s var(--ease); }
+  .gauge .center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+  .gauge .num { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: 2.4rem; line-height: 1; letter-spacing: -.02em; }
+  .gauge .out-of { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .sc-verdict .gl { display: inline-flex; align-items: baseline; gap: 10px; }
+  .sc-verdict .grade-letter { font-family: 'Instrument Serif', serif; font-size: 2.6rem; line-height: 1; }
+  .sc-verdict .grade-label { font-weight: 700; font-size: 1.1rem; }
+  .sc-verdict .vtext { color: var(--muted); font-size: .92rem; margin-top: 8px; max-width: 46ch; }
+  .sc-verdict .cap { margin-top: 10px; font-size: 12px; font-family: 'JetBrains Mono', monospace; color: #fca5a5; background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.25); border-radius: 8px; padding: 7px 11px; display: inline-block; }
+
+  /* grade colors */
+  .g-A { color: #86efac; } .g-A-stroke { stroke: #4ade80; }
+  .g-B { color: #86efac; } .g-B-stroke { stroke: #4ade80; }
+  .g-C { color: #fcd34d; } .g-C-stroke { stroke: #fbbf24; }
+  .g-D { color: #fdba74; } .g-D-stroke { stroke: #fb923c; }
+  .g-F { color: #fca5a5; } .g-F-stroke { stroke: #ef4444; }
+
+  /* dimension bars */
+  .sc-dims { padding: 4px 22px 20px; display: grid; gap: 11px; }
+  .dim { display: grid; grid-template-columns: 110px 1fr 56px; align-items: center; gap: 12px; }
+  .dim .dn { font-size: 12.5px; font-weight: 600; }
+  .dim .dn small { color: var(--muted); font-weight: 500; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+  .dim .bar { height: 8px; border-radius: 6px; background: rgba(255,255,255,0.06); overflow: hidden; }
+  .dim .bar i { display: block; height: 100%; width: 0; border-radius: 6px; transition: width 1.1s var(--ease); }
+  .dim .dv { text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; }
+  .fill-hi { background: linear-gradient(90deg, #22c55e, #4ade80); }
+  .fill-mid { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+  .fill-lo { background: linear-gradient(90deg, #ef4444, #f87171); }
+
+  /* critical issues + factors */
+  .sc-issues { padding: 0 22px 18px; }
+  .sc-issues h4, .sc-factors h4 { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+  .issue { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; margin: 8px 0; color: #ecebf3; }
+  .sev { flex: none; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 700; letter-spacing: .06em; padding: 3px 7px; border-radius: 6px; margin-top: 1px; }
+  .sev.CRITICAL { color: #fca5a5; background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.3); }
+  .sev.HIGH { color: #fdba74; background: rgba(249,115,22,.1); border: 1px solid rgba(249,115,22,.3); }
+  .sev.MEDIUM { color: #fcd34d; background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.28); }
+  .issue .imp { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+  .sc-factors { padding: 0 22px 22px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; border-top: 1px solid var(--line); padding-top: 16px; }
+  @media (max-width: 620px){ .sc-factors { grid-template-columns: 1fr; } }
+  .factor { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; margin: 6px 0; }
+  .factor .pt { font-family: 'JetBrains Mono', monospace; font-weight: 600; flex: none; }
+  .factor .pt.plus { color: #86efac; } .factor .pt.minus { color: #fca5a5; }
+  @media (prefers-reduced-motion: reduce){ .gauge .fill, .dim .bar i { transition: none; } }
+
+  /* ===== developer profile card ===== */
+  .profile { margin-top: 16px; border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(180deg, #0f0f17, #0b0b11); padding: 22px; }
+  .pf-head { display: flex; gap: 16px; align-items: center; }
+  .pf-head img { width: 68px; height: 68px; border-radius: 50%; border: 1px solid var(--line); }
+  .pf-name { font-weight: 800; font-size: 1.25rem; letter-spacing: -.01em; }
+  .pf-login { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent-2); }
+  .pf-bio { color: var(--muted); font-size: .92rem; margin-top: 4px; }
+  .pf-stats { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .pf-stat { display: flex; flex-direction: column; }
+  .pf-stat b { font-size: 1.2rem; font-weight: 800; }
+  .pf-stat span { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+  .pf-read { color: var(--ink); font-size: .92rem; margin-top: 16px; line-height: 1.6; }
+  .pf-repos { margin-top: 16px; }
+  .pf-repos h4 { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+  .pf-repo { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 10px 0; border-top: 1px solid rgba(255,255,255,0.05); }
+  .pf-repo .rn { font-weight: 600; font-size: 13.5px; }
+  .pf-repo .rn small { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500; margin-left: 6px; }
+  .pf-repo .rd { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .pf-repo .rs { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent-2); white-space: nowrap; text-align: right; }
+  .meta-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .pill { font-family: 'JetBrains Mono', monospace; font-size: 11px; border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; color: var(--muted); }
+  .pill b { color: var(--accent-2); font-weight: 600; }
+  .warn { margin-top: 12px; border: 1px solid rgba(254,188,46,.3); background: rgba(254,188,46,.06); border-radius: 12px; padding: 12px 14px; font-size: 13px; color: #f3d08a; }
+
+  /* feature strip */
+  section.feats { padding: 72px 0 40px; }
+  .feat-grid { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px){ .feat-grid{ grid-template-columns: 1fr; } }
+  .card { background: #101017; border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+  .card .ico { font-size: 22px; }
+  .card h3 { font-size: 1.05rem; margin: 12px 0 6px; font-weight: 700; }
+  .card p { color: var(--muted); font-size: .92rem; }
+  .card .kill { margin-top: 10px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--accent-2); }
+
+  footer { padding: 48px 0; border-top: 1px solid var(--line); margin-top: 40px; color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 12px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  footer a { color: var(--accent-2); text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+
+<div class="wrap">
+  <nav>
+    <div class="brand"><span class="mark">🧭</span> RepoPilot</div>
+    <div class="nav-tag">your first-run agent</div>
+  </nav>
+
+  <header class="hero">
+    <p class="eyebrow">Built on AWS · Bedrock Nova Pro · Lambda</p>
+    <h1>Clone to running,<br /><em>without the guesswork.</em></h1>
+    <p class="sub">You saw a repo in a reel or a tweet and someone said "just use this." Before you blindly clone it, point RepoPilot at it. It reads the repo's real files, gives you a trust read and flags any risky setup steps, then hands you one friendly path to a working first run.</p>
+
+    <div class="console-shell">
+      <div class="console">
+        <div class="console-bar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="console-title">repopilot --onboard</span>
+          <div class="mode-toggle" id="modeToggle">
+            <button class="mode-btn active" data-mode="demo" id="btnDemo">Demo</button>
+            <button class="mode-btn" data-mode="live" id="btnLive">Live</button>
+          </div>
+        </div>
+        <div class="console-body">
+          <div class="mode-note" id="modeNote">
+            <b>Demo mode.</b> Pre-configured sample results, instant and free. No setup, nothing hits a live service. Try the examples below.
+          </div>
+          <div class="field">
+            <input id="repo" type="text" placeholder="owner/repo to inspect, or a username to profile" value="pallets/flask" spellcheck="false" />
+            <button class="btn" id="go">Inspect <span class="chip">→</span></button>
+          </div>
+          <div class="examples">
+            <span>try:</span>
+            <button data-repo="pallets/flask">pallets/flask</button>
+            <button data-repo="evil/fake-agent-kit">evil/fake-agent-kit</button>
+            <button data-repo="torvalds">@torvalds</button>
+            <button data-repo="simplynadaf">@simplynadaf</button>
+          </div>
+
+          <div class="out" id="out">
+            <div class="status" id="status"><span class="spinner"></span> RepoPilot is inspecting…</div>
+            <div class="profile" id="profile" style="display:none"></div>
+            <div class="scorecard" id="scorecard" style="display:none"></div>
+            <div class="trust" id="trust" style="display:none"></div>
+            <div class="answer" id="answer" style="display:none"></div>
+            <div class="meta-row" id="meta"></div>
+            <div class="warn" id="warn" style="display:none"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="feats">
+    <p class="eyebrow" style="margin-bottom:18px">What it does. Each feature kills a real pain</p>
+    <div class="feat-grid">
+      <div class="card">
+        <div class="ico">🛡️</div>
+        <h3>Trust read before you clone</h3>
+        <p>Checks repo age, star timing, maintenance, and license, then flags the patterns behind the 2026 FakeGit wave of 17,000+ fake agent repos. Know before you run.</p>
+        <div class="kill">kills · blindly trusting a reel repo</div>
+      </div>
+      <div class="card">
+        <div class="ico">⚠️</div>
+        <h3>Dangerous-setup scan</h3>
+        <p>Reads the install steps and warns you about curl-pipe-bash, npm postinstall hooks, and base64 blobs that run code you cannot see, in plain English.</p>
+        <div class="kill">kills · hidden malware in setup</div>
+      </div>
+      <div class="card">
+        <div class="ico">💬</div>
+        <h3>One path + kind error recovery</h3>
+        <p>Then it gives you one ordered path from clone to running, and when a command fails it explains the error like a teammate. The delightful detail.</p>
+        <div class="kill">kills · scattered setup & cryptic errors</div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div>🧭 RepoPilot: Your First-Run Agent · Amazon Bedrock (Nova Pro) · AWS Lambda · Strands</div>
+    <div>Built by <a href="https://github.com/simplynadaf">Sarvar Nadaf</a> · Apache-2.0</div>
+  </footer>
+</div>
+
+<script>
+  // ========================= CONFIG =========================
+  // The live API Gateway endpoint (fronts the Lambda + Amazon Nova Pro).
+  const ENDPOINT = "https://m46yt4455b.execute-api.us-east-1.amazonaws.com";
+  // Master switch for the Live option. After the demo is recorded, set this to false to
+  // ship a safe, cost-free public site that runs ONLY on pre-configured Demo data.
+  const LIVE_ENABLED = true;
+  // ==========================================================
+
+  const $ = (id) => document.getElementById(id);
+  const repoInput = $("repo"), goBtn = $("go"), out = $("out"),
+        statusEl = $("status"), profileEl = $("profile"), scEl = $("scorecard"), trustEl = $("trust"), answerEl = $("answer"), metaEl = $("meta"), warnEl = $("warn");
+
+  document.querySelectorAll('.examples button').forEach(b =>
+    b.addEventListener('click', () => { repoInput.value = b.dataset.repo; run(); }));
+  goBtn.addEventListener('click', run);
+  repoInput.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+
+  const SAMPLE = {
+    repo: "flask",
+    answer:
+`Welcome to the Flask repository! Here's a friendly guide to get you started:
+
+1. Clone the repo and navigate in:
+   git clone https://github.com/pallets/flask.git
+   cd flask
+
+2. Check your Python version (this repo needs >=3.11):
+   python --version
+
+3. Install dependencies (pick one):
+   pip install -r requirements.txt
+   # or, with Poetry:
+   poetry install
+
+4. Run it:
+   python main.py
+
+That's it, you're set to explore Flask. Happy building!`,
+    plan: { ecosystems: ["python-poetry", "python-pip"], confidence: "medium" },
+    readme_check: { ok: true, issues: [] },
+    preflight: { requirements: [{ tool: "python", required: ">=3.11", check: "python --version" }] },
+    trust: { grade: "A", score: 92, flags: [], good: [], reassurance: "" },
+    danger: { safe_looking: true, findings: [] },
+    scorecard: {
+      overall: 98, grade: "A", label: "Excellent",
+      verdict: "Safe to explore. Still skim the setup steps before running them.",
+      capped_by_critical: false,
+      dimensions: [
+        { name: "Safety", key: "safety", score: 100, weight: 30 },
+        { name: "Trust", key: "trust", score: 100, weight: 25 },
+        { name: "Maintenance", key: "maintenance", score: 100, weight: 20 },
+        { name: "Maturity", key: "maturity", score: 100, weight: 15 },
+        { name: "Documentation", key: "documentation", score: 85, weight: 10 }
+      ],
+      factors: {
+        positive: [
+          { label: "Mature project (3+ years old)", points: 30 },
+          { label: "Strong genuine adoption (74,934 stars)", points: 25 },
+          { label: "Actively maintained (updated recently)", points: 10 },
+          { label: "Owned by an organization account", points: 8 },
+          { label: "Ships a BSD-3-Clause license", points: 25 }
+        ],
+        negative: []
+      },
+      critical_issues: []
+    }
+  };
+
+  const SAMPLE_PROFILE = {
+    mode: "profile",
+    profile: {
+      kind: "profile", login: "torvalds", name: "Linus Torvalds", bio: "",
+      company: "Linux Foundation", location: "Portland, OR", avatar: "https://avatars.githubusercontent.com/u/1024025?v=4",
+      followers: 326858, following: 0, public_repos: 8, since: "2011",
+      html_url: "https://github.com/torvalds", total_stars: 263424, total_forks: 70000,
+      top_languages: ["C"], repos_counted: 8, truncated: false,
+      top_repos: [
+        { name: "linux", stars: 251310, forks: 67149, language: "C", description: "Linux kernel source tree", url: "" },
+        { name: "AudioNoise", stars: 4508, forks: 224, language: "C", description: "", url: "" },
+        { name: "GuitarPedal", stars: 2438, forks: 124, language: "C", description: "", url: "" },
+        { name: "uemacs", stars: 2164, forks: 326, language: "C", description: "Random version of microemacs", url: "" }
+      ]
+    },
+    answer: "Linus Torvalds has been on GitHub since 2011 and is about as credible as open source gets, with over 263,000 stars across his own repos and 326k followers. His work is overwhelmingly C. Start with the linux repo (251k stars); the rest are small personal projects."
+  };
+
+  function isUsername(s) {
+    s = s.trim().replace(/\/+$/, "");
+    const url = s.match(/^https?:\/\/github\.com\/([\w-]+)$/);
+    if (url) return url[1];
+    if (/^@?[\w-]+$/.test(s) && !s.includes("/")) return s.replace(/^@/, "");
+    return null;
+  }
+
+  // ===== DEMO MODE: curated, pre-configured results (instant, free, offline) =====
+  const DEMO_PROFILE_SIMPLYNADAF = {
+    mode: "profile",
+    profile: {
+      kind: "profile", login: "simplynadaf", name: "Sarvar's", bio: "Cloud Architect",
+      company: "Deloitte", location: "Pune", avatar: "https://avatars.githubusercontent.com/u/107028874?v=4",
+      followers: 13, following: 0, public_repos: 46, since: "2022",
+      html_url: "https://github.com/simplynadaf", total_stars: 14, total_forks: 8,
+      top_languages: ["Python", "HTML", "Shell"], repos_counted: 43, truncated: false,
+      top_repos: [
+        { name: "devpub", stars: 5, forks: 1, language: "Python", description: "", url: "" },
+        { name: "aws-auditor-agent", stars: 1, forks: 1, language: "Shell", description: "", url: "" },
+        { name: "repopilot-your-first-run-agent", stars: 1, forks: 0, language: "Python", description: "A friendly GitHub repo inspector agent", url: "" }
+      ]
+    },
+    answer: "Sarvar (@simplynadaf) is a Cloud Architect active on GitHub since 2022, working mainly in Python, HTML, and Shell. The footprint is modest (14 stars across 46 repos), which is normal for a hands-on practitioner rather than a library maintainer. Start with devpub and aws-auditor-agent."
+  };
+
+  // A crafted MALICIOUS repo to showcase the F-grade / critical-cap path.
+  const DEMO_EVIL = {
+    repo: "fake-agent-kit",
+    scorecard: {
+      overall: 28, grade: "F", label: "Avoid",
+      verdict: "A critical safety issue was found. Do not run this repo's setup until you have read it line by line.",
+      capped_by_critical: true,
+      dimensions: [
+        { name: "Safety", key: "safety", score: 20, weight: 30 },
+        { name: "Trust", key: "trust", score: 40, weight: 25 },
+        { name: "Maintenance", key: "maintenance", score: 70, weight: 20 },
+        { name: "Maturity", key: "maturity", score: 35, weight: 15 },
+        { name: "Documentation", key: "documentation", score: 50, weight: 10 }
+      ],
+      factors: {
+        positive: [{ label: "Has a README", points: 25 }],
+        negative: [
+          { label: "Runs a remote script straight from the internet (curl | bash)", points: -35 },
+          { label: "Fake-star pattern: 41,000 stars on a 18-day-old repo", points: -45 },
+          { label: "npm pre/postinstall hook runs code automatically", points: -22 }
+        ]
+      },
+      critical_issues: [
+        { severity: "CRITICAL", issue: "Runs a remote script straight from the internet (curl | bash)", impact: -35, dimension: "Safety" },
+        { severity: "CRITICAL", issue: "Fake-star pattern: 41,000 stars on a 18-day-old repo", impact: -45, dimension: "Trust" },
+        { severity: "HIGH", issue: "npm pre/postinstall hook runs code automatically on install", impact: -22, dimension: "Safety" }
+      ]
+    },
+    plan: { ecosystems: ["node"], confidence: "high",
+      steps: ["git clone the repo and `cd fake-agent-kit`", "[node] install dependencies: `npm install`", "[node] run it: `npm start`"] },
+    readme_check: { ok: true, issues: [] },
+    preflight: { requirements: [], has_requirements: false },
+    answer: "Stop. RepoPilot scored this 28/100 (F, Avoid). Two critical flags: the setup pipes a remote script straight into bash (you cannot see what it runs), and it has 41,000 stars on an 18-day-old account, a classic fake-star pattern. This matches the behaviour of the 2026 FakeGit malicious-repo campaign. Do not run the install."
+  };
+
+  // Registry: input (lowercased) -> demo payload. Falls back to the generic flask/torvalds samples.
+  const DEMO = {
+    "pallets/flask": SAMPLE,
+    "tiangolo/fastapi": SAMPLE,
+    "evil/fake-agent-kit": DEMO_EVIL,
+    "torvalds": SAMPLE_PROFILE,
+    "simplynadaf": DEMO_PROFILE_SIMPLYNADAF
+  };
+
+  function demoData(input) {
+    const key = input.trim().replace(/^@/, "").toLowerCase();
+    if (DEMO[key]) return DEMO[key];
+    // Reasonable defaults so any input still shows something sensible in demo mode.
+    return isUsername(input) ? SAMPLE_PROFILE : SAMPLE;
+  }
+
+  // ===== mode state + toggle =====
+  let MODE = "demo";
+  const btnDemo = document.getElementById('btnDemo');
+  const btnLive = document.getElementById('btnLive');
+  const modeNote = document.getElementById('modeNote');
+
+  function setMode(m) {
+    if (m === 'live' && !LIVE_ENABLED) m = 'demo';
+    MODE = m;
+    btnDemo.classList.toggle('active', m === 'demo');
+    btnLive.classList.toggle('active', m === 'live');
+    if (m === 'live') {
+      modeNote.className = 'mode-note live';
+      modeNote.innerHTML = '<b>Live mode.</b> Queries real GitHub + Amazon Nova Pro on AWS through a deployed Lambda. First call after idle may take a few seconds (cold start). No key needed; it runs on the project owner\'s AWS account.';
+    } else {
+      modeNote.className = 'mode-note';
+      modeNote.innerHTML = '<b>Demo mode.</b> Pre-configured sample results, instant and free. No setup, nothing hits a live service. Try the examples below.';
+    }
+  }
+  btnDemo.addEventListener('click', () => { setMode('demo'); run(); });
+  btnLive.addEventListener('click', () => { setMode('live'); run(); });
+  if (!LIVE_ENABLED) { btnLive.style.display = 'none'; }
+
+  async function run() {
+    const repo = repoInput.value.trim();
+    if (!repo) return;
+    out.classList.add('show');
+    statusEl.style.display = 'flex';
+    answerEl.style.display = 'none';
+    profileEl.style.display = 'none';
+    scEl.style.display = 'none';
+    trustEl.style.display = 'none';
+    warnEl.style.display = 'none';
+    metaEl.innerHTML = '';
+    goBtn.disabled = true;
+    const asUser = isUsername(repo);
+
+    let data;
+    if (MODE === 'demo' || !LIVE_ENABLED) {
+      // instant, pre-configured
+      await new Promise(r => setTimeout(r, 350));
+      data = demoData(repo);
+    } else {
+      try {
+        const res = await fetch(ENDPOINT, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repo })
+        });
+        data = await res.json();
+        if (data.error) throw new Error(data.error);
+      } catch (e) {
+        // Live failed, fall back to demo data so it never dead-ends.
+        data = demoData(repo);
+        warnEl.style.display = 'block';
+        warnEl.textContent = 'Live call did not complete (' + e.message.slice(0, 60) + '). Showing demo data instead.';
+      }
+    }
+    render(data);
+    goBtn.disabled = false;
+  }
+
+  function render(d) {
+    statusEl.style.display = 'none';
+
+    // ===== Developer profile mode =====
+    if (d.mode === 'profile' && d.profile) {
+      profileEl.innerHTML = buildProfile(d.profile, d.answer);
+      profileEl.style.display = 'block';
+      return;
+    }
+
+    // ===== RepoPilot Score card (the git inspector verdict) =====
+    const sc = d.scorecard;
+    if (sc) {
+      scEl.innerHTML = buildScorecard(sc);
+      scEl.style.display = 'block';
+      // animate the gauge + bars after paint
+      requestAnimationFrame(() => requestAnimationFrame(() => animateScore(sc)));
+    }
+
+    answerEl.style.display = 'block';
+    answerEl.textContent = d.answer || JSON.stringify(d.plan, null, 2);
+
+    const pills = [];
+    if (d.repo) pills.push(`repo <b>${d.repo}</b>`);
+    if (d.plan?.ecosystems?.length) pills.push(`stack <b>${d.plan.ecosystems.join(', ')}</b>`);
+    if (d.plan?.confidence) pills.push(`confidence <b>${d.plan.confidence}</b>`);
+    if (d.preflight?.requirements?.length)
+      pills.push(`needs <b>${d.preflight.requirements.map(r => r.tool + ' ' + r.required).join(', ')}</b>`);
+    metaEl.innerHTML = pills.map(p => `<span class="pill">${p}</span>`).join('');
+
+    if (d.readme_check && d.readme_check.ok === false && d.readme_check.issues?.length) {
+      warnEl.style.display = 'block';
+      warnEl.innerHTML = '⚠ README vs reality: ' + d.readme_check.issues.join(' · ');
+    }
+  }
+
+  const R = 66, C = 2 * Math.PI * R; // gauge radius + circumference
+
+  function buildScorecard(sc) {
+    const g = sc.grade || 'C';
+    const dims = (sc.dimensions || []).map(dm => {
+      const cls = dm.score >= 75 ? 'fill-hi' : dm.score >= 50 ? 'fill-mid' : 'fill-lo';
+      return `<div class="dim">
+        <div class="dn">${dm.name} <small>${dm.weight}%</small></div>
+        <div class="bar"><i class="${cls}" data-w="${dm.score}"></i></div>
+        <div class="dv">${dm.score}</div></div>`;
+    }).join('');
+
+    const issues = (sc.critical_issues || []).length ? `
+      <div class="sc-issues"><h4>Critical issues</h4>
+        ${sc.critical_issues.map(c => `<div class="issue">
+          <span class="sev ${c.severity}">${c.severity}</span>
+          <span>${c.issue} <span class="imp">(${c.impact})</span></span></div>`).join('')}
+      </div>` : '';
+
+    const pos = (sc.factors?.positive || []).slice(0, 6);
+    const neg = (sc.factors?.negative || []).slice(0, 6);
+    const factors = (pos.length || neg.length) ? `
+      <div class="sc-factors">
+        <div><h4>What helped</h4>${pos.length ? pos.map(f =>
+          `<div class="factor"><span>${f.label}</span><span class="pt plus">+${f.points}</span></div>`).join('')
+          : '<div class="factor"><span style="color:var(--muted)">None recorded</span></div>'}</div>
+        <div><h4>What hurt</h4>${neg.length ? neg.map(f =>
+          `<div class="factor"><span>${f.label}</span><span class="pt minus">${f.points}</span></div>`).join('')
+          : '<div class="factor"><span style="color:var(--muted)">Nothing. Clean report.</span></div>'}</div>
+      </div>` : '';
+
+    const cap = sc.capped_by_critical
+      ? `<div class="cap">⚠ Grade capped by a critical safety issue. Do not run the setup until you read it.</div>` : '';
+
+    return `
+      <div class="sc-top">
+        <div class="gauge">
+          <svg width="150" height="150" viewBox="0 0 150 150">
+            <circle class="track" cx="75" cy="75" r="${R}"></circle>
+            <circle class="fill g-${g}-stroke" cx="75" cy="75" r="${R}"
+              stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${C.toFixed(1)}" id="gaugeFill"></circle>
+          </svg>
+          <div class="center">
+            <div class="num g-${g}" id="scNum">0</div>
+            <div class="out-of">/ 100</div>
+          </div>
+        </div>
+        <div class="sc-verdict">
+          <div class="gl"><span class="grade-letter g-${g}">${g}</span><span class="grade-label g-${g}">${sc.label || ''}</span></div>
+          <div class="vtext">${sc.verdict || ''}</div>
+          ${cap}
+        </div>
+      </div>
+      <div class="sc-dims">${dims}</div>
+      ${issues}
+      ${factors}`;
+  }
+
+  function buildProfile(p, answer) {
+    const fmt = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n);
+    const repos = (p.top_repos || []).map(r => `
+      <div class="pf-repo">
+        <div><div class="rn">${r.name}${r.language ? `<small>${r.language}</small>` : ''}</div>
+          ${r.description ? `<div class="rd">${r.description}</div>` : ''}</div>
+        <div class="rs">${fmt(r.stars)} ★ &nbsp; ${fmt(r.forks)} ⑂</div>
+      </div>`).join('');
+    const meta = [p.company, p.location, p.since ? 'since ' + p.since : ''].filter(Boolean).join(' · ');
+    return `
+      <div class="pf-head">
+        ${p.avatar ? `<img src="${p.avatar}" alt="${p.login}" />` : ''}
+        <div>
+          <div class="pf-name">${p.name}</div>
+          <div class="pf-login">@${p.login}${meta ? ' · ' + meta : ''}</div>
+          ${p.bio ? `<div class="pf-bio">${p.bio}</div>` : ''}
+        </div>
+      </div>
+      <div class="pf-stats">
+        <div class="pf-stat"><b>${fmt(p.followers)}</b><span>followers</span></div>
+        <div class="pf-stat"><b>${fmt(p.public_repos)}</b><span>repos</span></div>
+        <div class="pf-stat"><b>${fmt(p.total_stars)}</b><span>total stars</span></div>
+        ${p.top_languages && p.top_languages.length ? `<div class="pf-stat"><b>${p.top_languages[0]}</b><span>main language</span></div>` : ''}
+      </div>
+      ${answer ? `<div class="pf-read">${answer}</div>` : ''}
+      <div class="pf-repos"><h4>Top repositories${p.truncated ? ' (of first 100)' : ''}</h4>${repos}</div>`;
+  }
+
+  function animateScore(sc) {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const fill = document.getElementById('gaugeFill');
+    const num = document.getElementById('scNum');
+    const target = sc.overall || 0;
+    if (fill) fill.style.strokeDashoffset = (C * (1 - target / 100)).toFixed(1);
+    document.querySelectorAll('.dim .bar i').forEach(el => { el.style.width = el.dataset.w + '%'; });
+    if (reduce) { if (num) num.textContent = target; return; }
+    // count-up
+    let cur = 0; const step = Math.max(1, Math.round(target / 40));
+    const t = setInterval(() => {
+      cur = Math.min(target, cur + step);
+      if (num) num.textContent = cur;
+      if (cur >= target) clearInterval(t);
+    }, 28);
+  }
+
+  // Auto-run once on load for an instant "it works" first impression.
+  window.addEventListener('load', () => setTimeout(run, 400));
+</script>
+</body>
+</html>
